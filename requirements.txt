@@ -7,7 +7,7 @@ cffi==1.11.5
 chardet==3.0.2
 chardet2==2.0.3
 click==6.7
-facebook-sdk==3.0.0a0
+facebook-sdk==2.0.0
 Flask==1.0.2
 Flask-BabelEx==0.9.3
 Flask-Bcrypt==0.7.1

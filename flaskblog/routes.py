@@ -2,7 +2,7 @@ from flask import Flask, render_template, url_for, flash, redirect,request, abor
 
 
 from flaskblog import app,db,bcrpyt
-from flaskblog.forms import RegistrationForm, LoginForm, UpdateAccountForm, PostForm
+from flaskblog.forms import RegistrationForm, LoginForm, UpdateAccountForm, PostForm, RequestResetForm, ResetPasswordForm
 from flaskblog.models import User, Post
 from flask_login import login_user, current_user, logout_user,login_required
 
@@ -20,6 +20,8 @@ import urllib
 import urllib3
 from urllib.request import urlopen
 
+from itsdangerous import URLSafeTimedSerializer
+from flask_mail import Mail,  Message
 
 app.config['GOOGLE_ID'] = "548687100135-hg2e5lnq79gb8k7ekffsb6galuu3tisn.apps.googleusercontent.com"
 app.config['GOOGLE_SECRET'] = "-g02Fl4Es4Xp2OQ1pyPNYxXV"
@@ -33,11 +35,20 @@ app.config['OAUTH_CREDENTIALS'] = {
     }
 }
 
+app.config['MAIL_SERVER']='smtp.googlemail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'mkanandin@gmail.com'
+app.config['MAIL_PASSWORD'] = 'chottu@33'
+
+
 REDIRECT_URI = '/oauth2callback'
 
 # creating OAuth object
 oauth = OAuth()
 
+#creating mail object
+mail = Mail(app)
 
 google = oauth.remote_app(
     'google',
@@ -186,10 +197,62 @@ def delete_post(post_id):
     flash('Your post has been deleted!', 'success')
     return redirect(url_for('home'))
 
-# fb
+
+#         $$        $$  FORGOT PASSWORD   $$   $$
 
 
-# Social Login-Facebook
+# send email route
+@app.route("/user/<string:username>")
+def send_reset_email(user):
+    token = user.get_reset_token()
+    msg = Message('Password Reset Request',
+                  sender='mkanandin@gmail.com',
+                  recipients=[user.email])
+    url_reset = url_for('reset_token', token=token, _external=True)
+    msg.body = """
+    To reset your password, visit the following link:"""+\
+        "<a href="+url_reset+\
+              """>Click Me</a>If you did not make this request then simply ignore 
+              this email and no changes will be made."""
+
+    mail.send(msg)
+
+
+# request email for reseting password
+@app.route("/reset_password", methods=['GET', 'POST'])
+def reset_request():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    form = RequestResetForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        send_reset_email(user)
+        flash('An email has been sent with instructions to reset your password.', 'info')
+        return redirect(url_for('login'))
+    return render_template('reset_request.html', title='Reset Password', form=form)
+
+
+# reset password
+@app.route("/reset_password/<token>", methods=['GET', 'POST'])
+def reset_token(token):
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    user = User.verify_reset_token(token)
+    if user is None:
+        flash('That is an invalid or expired token', 'warning')
+        return redirect(url_for('reset_request'))
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        hashed_password = bcrpyt.generate_password_hash(form.password.data).decode('utf-8')
+        user.password = hashed_password
+        db.session.commit()
+        flash('Your password has been updated! You are now able to log in', 'success')
+        return redirect(url_for('login'))
+    return render_template('reset_token.html', title='Reset Password', form=form)
+
+
+#   $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$  SOCIAL LOGIN-FACEBOOK $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
 @app.route('/authorize/<provider>')
 def oauth_authorize(provider):
     if not current_user.is_anonymous:
@@ -216,47 +279,8 @@ def oauth_callback(provider):
     login_user(user, True)
     return redirect(url_for('login'))
 
-# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-# Google
-# @app.route('/authorize/<provider>')
-# def oauth_authorize(provider):
-#     if not current_user.is_anonymous:
-#         return redirect(url_for('login'))
-#     oauth = OAuthSignIn.get_provider(provider)
-#     return oauth.authorize()
-#
-#
-# @app.route('/callback/<provider>')
-# def oauth_callback(provider):
-#     if not current_user.is_anonymous():
-#         return redirect(url_for('login'))
-#     oauth = OAuthSignIn.get_provider(provider)
-#     username, email = oauth.callback()
-#     if email is None:
-#         # I need a valid email address for my user identification
-#         flash('Authentication failed.')
-#         return redirect(url_for('login'))
-#     # Look if the user already exists
-#     user=User.query.filter_by(email=email).first()
-#     if not user:
-#         # Create the user. Try and use their name returned by Google,
-#         # but if it is not set, split the email address at the @.
-#         nickname = username
-#         if nickname is None or nickname == "":
-#             nickname = email.split('@')[0]
-#
-#         # We can do more work here to ensure a unique nickname, if you
-#         # require that.
-#         user=User(nickname=nickname, email=email)
-#         db.session.add(user)
-#         db.session.commit()
-#     # Log in the user, by default remembering them for their next visit
-#     # unless they log out.
-#     login_user(user, remember=True)
-#     return redirect(url_for('login'))
 
-
-#   $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ GOOGLE NEW $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+#   $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ SOCIAL LOGIN-GOOGLE $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 @app.route('/googleindex')
 def googleindex():
